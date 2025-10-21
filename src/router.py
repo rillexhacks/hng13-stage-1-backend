@@ -13,27 +13,43 @@ from src import models, crud, utils
 
 string_router = APIRouter()
 
+
 @string_router.get("/strings/filter-by-natural-language", response_model=dict)
 async def filter_by_natural_language(
     query: str = Query(..., description="Natural language filter query"),
     session: AsyncSession = Depends(get_session),
 ):
-    parsed_filters = utils.parse_natural_language_query(query)
-    data = await crud.get_filtered_strings(
-        session=session,
-        is_palindrome=parsed_filters["is_palindrome"],
-        min_length=parsed_filters["min_length"],
-        max_length=parsed_filters["max_length"],
-        word_count=parsed_filters["word_count"],
-        contains_character=parsed_filters["contains_character"],
-    )
+    try:
+        parsed_filters = utils.parse_natural_language_query(query)
+        data = await crud.get_filtered_strings(
+            session=session,
+            is_palindrome=parsed_filters.get("is_palindrome"),
+            min_length=parsed_filters.get("min_length"),
+            max_length=parsed_filters.get("max_length"),
+            word_count=parsed_filters.get("word_count"),
+            contains_character=parsed_filters.get("contains_character"),
+        )
 
-    return {
-        "data": data,
-        "count": len(data),
-        "interpreted_query": {"original": query, "parsed_filters": parsed_filters},
-    }
- 
+        # Convert SQLModel objects to dicts to ensure proper JSON serialization
+        response_data = []
+        for item in data:
+            response_data.append(
+                {
+                    "id": item.id,
+                    "value": item.value,
+                    "properties": item.properties,
+                    "created_at": item.created_at,
+                }
+            )
+
+        return {
+            "data": response_data,
+            "count": len(response_data),
+            "interpreted_query": {"original": query, "parsed_filters": parsed_filters},
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @string_router.post("/strings", response_model=schemas.StringResponse, status_code=201)
 async def analyze_string_endpoint(
@@ -44,25 +60,31 @@ async def analyze_string_endpoint(
         raise HTTPException(status_code=400, detail="Missing or empty 'value' field")
 
     sha, properties = utils.analyze_string(value)
-    existing = await crud.get_by_id(session, sha)
 
+    # Check for existing string by value first
+    existing = await crud.get_by_value(session, value)
     if existing:
         raise HTTPException(status_code=409, detail="String already exists")
 
     record = models.AnalyzedString(id=sha, value=value, properties=properties)
 
-    created = await crud.create_string(session, record)
-    return created
+    try:
+        created = await crud.create_string(session, record)
+        return created
+    except Exception as e:
+        # If we get a unique constraint violation or any other error
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @string_router.get("/strings/{string_value}", response_model=schemas.StringResponse)
 async def get_string_by_value(
     string_value: str, session: AsyncSession = Depends(get_session)
 ):
-    record = await crud.get_by_value(session, string_value)  
+    record = await crud.get_by_value(session, string_value)
     if not record:
         raise HTTPException(status_code=404, detail="String not found")
     return record
+
 
 @string_router.get("/all_strings", response_model=list[schemas.StringResponse])
 async def get_all_strings(session: AsyncSession = Depends(get_session)):
@@ -115,9 +137,3 @@ async def delete_string(
             status_code=404, detail="String does not exist in the system"
         )
     return None  # 204 No Content
-
-
-
-
-
-
