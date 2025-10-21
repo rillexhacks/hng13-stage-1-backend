@@ -6,9 +6,9 @@ from .models import AnalyzedString
 from sqlalchemy import func
 from src import models
 
-async def get_by_id(session: AsyncSession, sha: str):
-    result = await session.exec(select(AnalyzedString).where(AnalyzedString.id == sha))
-    return result.scalars().first()
+async def get_by_value(session: AsyncSession, value: str):
+    result = await session.exec(select(AnalyzedString).where(AnalyzedString.value == value))
+    return result.scalar_one_or_none()
 
 async def create_string(session: AsyncSession, record: AnalyzedString):
     session.add(record)

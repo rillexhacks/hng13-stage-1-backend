@@ -13,27 +13,27 @@ from src import models, crud, utils
 
 string_router = APIRouter()
 
-
 @string_router.get("/strings/filter-by-natural-language", response_model=dict)
 async def filter_by_natural_language(
     query: str = Query(..., description="Natural language filter query"),
     session: AsyncSession = Depends(get_session),
 ):
     parsed_filters = utils.parse_natural_language_query(query)
-
-    if parsed_filters is None:
-        raise HTTPException(
-            status_code=400, detail="Unable to parse natural language query"
-        )
-
-    data, _ = await crud.get_filtered_strings(session=session, **parsed_filters)
+    data = await crud.get_filtered_strings(
+        session=session,
+        is_palindrome=parsed_filters["is_palindrome"],
+        min_length=parsed_filters["min_length"],
+        max_length=parsed_filters["max_length"],
+        word_count=parsed_filters["word_count"],
+        contains_character=parsed_filters["contains_character"],
+    )
 
     return {
         "data": data,
         "count": len(data),
         "interpreted_query": {"original": query, "parsed_filters": parsed_filters},
     }
-
+ 
 
 @string_router.post("/strings", response_model=schemas.StringResponse, status_code=201)
 async def analyze_string_endpoint(
@@ -55,15 +55,14 @@ async def analyze_string_endpoint(
     return created
 
 
-@string_router.get("/strings/{string_id}", response_model=schemas.StringResponse)
-async def get_string_by_id(
-    string_id: str, session: AsyncSession = Depends(get_session)
+@string_router.get("/strings/{string_value}", response_model=schemas.StringResponse)
+async def get_string_by_value(
+    string_value: str, session: AsyncSession = Depends(get_session)
 ):
-    record = await crud.get_by_id(session, string_id)
+    record = await crud.get_by_value(session, string_value)  
     if not record:
         raise HTTPException(status_code=404, detail="String not found")
     return record
-
 
 @string_router.get("/all_strings", response_model=list[schemas.StringResponse])
 async def get_all_strings(session: AsyncSession = Depends(get_session)):
@@ -88,10 +87,11 @@ async def get_all_strings(
             word_count=word_count,
             contains_character=contains_character,
         )
+        data = [schemas.StringResponse.from_orm(r) for r in records]
 
         return {
-            "data": records,
-            "count": len(records),
+            "data": data,
+            "count": len(data),
             "filters_applied": {
                 "is_palindrome": is_palindrome,
                 "min_length": min_length,
@@ -105,29 +105,19 @@ async def get_all_strings(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@string_router.get("/strings/filter-by-natural-language", response_model=dict)
-async def filter_by_natural_language(
-    query: str = Query(..., description="Natural language filter query"),
-    session: AsyncSession = Depends(get_session),
-):
-    parsed_filters = utils.parse_natural_language_query(query)
-
-    if parsed_filters is None:
-        raise HTTPException(
-            status_code=400, detail="Unable to parse natural language query"
-        )
-
-    data, _ = await crud.get_filtered_strings(session=session, **parsed_filters)
-
-    return {
-        "data": data,
-        "count": len(data),
-        "interpreted_query": {"original": query, "parsed_filters": parsed_filters},
-    }
-
 @string_router.delete("/strings/{string_value}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_string(string_value: str, session: AsyncSession = Depends(get_session)):
+async def delete_string(
+    string_value: str, session: AsyncSession = Depends(get_session)
+):
     deleted = await crud.delete_by_value(session, string_value)
     if not deleted:
-        raise HTTPException(status_code=404, detail="String does not exist in the system")
+        raise HTTPException(
+            status_code=404, detail="String does not exist in the system"
+        )
     return None  # 204 No Content
+
+
+
+
+
+
