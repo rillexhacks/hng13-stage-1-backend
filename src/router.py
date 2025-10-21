@@ -13,6 +13,31 @@ from src import models, crud, utils
 
 string_router = APIRouter()
 
+# POST endpoint should come first
+@string_router.post("/strings", response_model=schemas.StringResponse, status_code=201)
+async def analyze_string_endpoint(
+    payload: schemas.StringCreate, session: AsyncSession = Depends(get_session)
+):
+    value = payload.value.strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="Missing or empty 'value' field")
+
+    sha, properties = utils.analyze_string(value)
+
+    # Check for existing string by value first
+    existing = await crud.get_by_value(session, value)
+    if existing:
+        raise HTTPException(status_code=409, detail="String already exists")
+
+    record = models.AnalyzedString(id=sha, value=value, properties=properties)
+
+    try:
+        created = await crud.create_string(session, record)
+        return created
+    except Exception as e:
+        # If we get a unique constraint violation or any other error
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @string_router.get("/strings/filter-by-natural-language", response_model=dict)
 async def filter_by_natural_language(
@@ -51,29 +76,6 @@ async def filter_by_natural_language(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@string_router.post("/strings", response_model=schemas.StringResponse, status_code=201)
-async def analyze_string_endpoint(
-    payload: schemas.StringCreate, session: AsyncSession = Depends(get_session)
-):
-    value = payload.value.strip()
-    if not value:
-        raise HTTPException(status_code=400, detail="Missing or empty 'value' field")
-
-    sha, properties = utils.analyze_string(value)
-
-    # Check for existing string by value first
-    existing = await crud.get_by_value(session, value)
-    if existing:
-        raise HTTPException(status_code=409, detail="String already exists")
-
-    record = models.AnalyzedString(id=sha, value=value, properties=properties)
-
-    try:
-        created = await crud.create_string(session, record)
-        return created
-    except Exception as e:
-        # If we get a unique constraint violation or any other error
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @string_router.get("/strings/{string_value}", response_model=schemas.StringResponse)
